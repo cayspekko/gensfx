@@ -25,18 +25,29 @@ SYSTEM_PROMPT = """You are a sound design AI. Output ONLY valid JSON matching th
   "global": {"amp": 0.8, "normalize": true},
   "layers": [
     {
-      "id": "main",
-      "type": "osc",
-      "amp": 0.7,
-      "pan": 0.0,
+      "id": "shimmer",
+      "type": "fm",
+      "amp": 0.5,
+      "pan": -0.1,
       "phase": 0.0,
-      "env": {"attack": 0.01, "decay": 0.3, "shape": "exp"},
-      "osc": {"waveform": "sine", "freq": 440.0, "detune": 0.0}
+      "env": {"attack": 0.02, "decay": 0.6, "shape": "exp"},
+      "fm": {"carrier_freq": 520.0, "mod_freq": 260.0, "index": 4.0, "brightness": 0.6}
+    },
+    {
+      "id": "bed",
+      "type": "noise",
+      "amp": 0.35,
+      "pan": 0.1,
+      "phase": 0.0,
+      "env": {"attack": 0.01, "decay": 0.7, "shape": "exp"},
+      "noise": {"color": "white"}
     }
   ],
   "fx_chain": [],
   "params": [
-    {"id": "freq", "label": "Frequency", "kind": "slider", "min": 200.0, "max": 2000.0, "step": 10.0, "default": 440.0, "path": "layers_by_id.main.osc.freq"}
+    {"id": "shimmer_brightness", "label": "Shimmer Brightness", "kind": "slider", "min": 0.0, "max": 1.0, "step": 0.05, "default": 0.6, "path": "layers_by_id.shimmer.fm.brightness"},
+    {"id": "shimmer_index", "label": "Shimmer FM Index", "kind": "slider", "min": 0.5, "max": 8.0, "step": 0.1, "default": 4.0, "path": "layers_by_id.shimmer.fm.index"},
+    {"id": "bed_amp", "label": "Bed Noise Amp", "kind": "slider", "min": 0.0, "max": 1.0, "step": 0.05, "default": 0.35, "path": "layers_by_id.bed.amp"}
   ]
 }
 
@@ -46,6 +57,16 @@ CRITICAL: Match layer type to its params:
 - type "fm" → "fm": {"carrier_freq": 440.0, "mod_freq": 220.0, "index": 5.0, "brightness": 0.5}
 - type "noise" → "noise": {"color": "white"}
 - type "impulse" → "impulse": {"kind": "click", "width": 0.005}
+
+Layering rules:
+- Default to 2–4 layers when the prompt implies complex or atmospheric soundscapes (e.g., mystical, cinematic, secret discovery, ambient, ethereal).
+- Single-layer output is ONLY allowed for explicitly "pure tone" requests.
+- If using any "osc" layer, add harmonics (e.g., richer waveform, detune, or layered overtones) to avoid thin tones.
+
+Adjective → layer hints (use as guidance):
+- "mystical", "ethereal" → fm + impulse
+- "airy", "breathy" → noise with gentle LP/HP sweep
+- "cinematic", "epic" → fm/osc bed + noise/impulse accents
 
 ALL layers MUST have: id, type, amp, pan, phase, env
 Output ONLY the JSON."""
