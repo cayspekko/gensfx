@@ -59,9 +59,11 @@ CRITICAL: Match layer type to its params:
 - type "impulse" → "impulse": {"kind": "click", "width": 0.005}
 
 Layering rules:
-- Default to 2–4 layers when the prompt implies complex or atmospheric soundscapes (e.g., mystical, cinematic, secret discovery, ambient, ethereal).
-- Single-layer output is ONLY allowed for explicitly "pure tone" requests.
-- If using any "osc" layer, add harmonics (e.g., richer waveform, detune, or layered overtones) to avoid thin tones.
+- Default to 2–4 layers for most prompts. Single-layer output is ONLY allowed for explicitly "pure tone", "single tone", or "test tone" requests.
+- Use complementary layer types to build texture (osc/chirp + noise/impulse/fm).
+- If using any "osc" layer, add 1–3 harmonics unless the user asks for a pure tone.
+- When using noise, prefer cutoff sweeps (cutoff_start/cutoff_end) to shape timbre.
+- Provide 2–5 params that expose meaningful controls (freq, cutoff, brightness, decay, amp).
 
 Adjective → layer hints (use as guidance):
 - "mystical", "ethereal" → fm + impulse
@@ -127,7 +129,7 @@ def generate_soundspec(prompt: str, style: Optional[str] = None) -> SoundSpec:
             print(f"First layer keys: {spec_dict['layers'][0].keys()}")
         
         spec = SoundSpec.model_validate(spec_dict)
-        return spec
+        return _ensure_rich_layers(spec, prompt)
         
     except Exception as e:
         print(f"Error generating SoundSpec: {e}")
@@ -148,6 +150,169 @@ def _mock_generator(prompt: str, style: Optional[str]) -> SoundSpec:
     else:
         # Default to gentle pickup
         return get_default_pickup()
+
+
+def _is_pure_tone_prompt(prompt: str) -> bool:
+    prompt_lower = prompt.lower()
+    return any(
+        phrase in prompt_lower
+        for phrase in (
+            "pure tone",
+            "single tone",
+            "test tone",
+            "single beep",
+            "calibration tone",
+        )
+    )
+
+
+def _unique_id(existing_ids: set[str], base: str) -> str:
+    if base not in existing_ids:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing_ids:
+        index += 1
+    return f"{base}_{index}"
+
+
+def _ensure_rich_layers(spec: SoundSpec, prompt: str) -> SoundSpec:
+    if len(spec.layers) >= 2 or _is_pure_tone_prompt(prompt):
+        return spec
+
+    spec_dict = spec.model_dump(by_alias=True)
+    layers = spec_dict.get("layers", [])
+    params = spec_dict.get("params", [])
+
+    existing_layer_ids = {layer["id"] for layer in layers}
+    existing_param_ids = {param["id"] for param in params}
+    prompt_lower = prompt.lower()
+
+    if "laser" in prompt_lower:
+        layer_id = _unique_id(existing_layer_ids, "laser_chirp")
+        layers.append({
+            "id": layer_id,
+            "type": "chirp",
+            "amp": 0.6,
+            "pan": 0.0,
+            "phase": 0.0,
+            "env": {"attack": 0.005, "decay": 0.25, "shape": "exp"},
+            "chirp": {
+                "waveform": "saw",
+                "f_start": 1600.0,
+                "f_end": 280.0,
+                "curve": "exponential",
+                "vibrato_hz": 0.0,
+                "vibrato_depth": 0.0,
+            },
+        })
+        params.append({
+            "id": _unique_id(existing_param_ids, "laser_start_freq"),
+            "label": "Laser Start Frequency",
+            "kind": "slider",
+            "min": 800.0,
+            "max": 2400.0,
+            "step": 20.0,
+            "default": 1600.0,
+            "path": f"layers_by_id.{layer_id}.chirp.f_start",
+        })
+    elif any(keyword in prompt_lower for keyword in ("explosion", "boom", "blast")):
+        layer_id = _unique_id(existing_layer_ids, "blast_noise")
+        layers.append({
+            "id": layer_id,
+            "type": "noise",
+            "amp": 0.7,
+            "pan": 0.0,
+            "phase": 0.0,
+            "env": {"attack": 0.0, "decay": 0.6, "shape": "exp"},
+            "noise": {
+                "color": "white",
+                "cutoff_start": 6000.0,
+                "cutoff_end": 900.0,
+                "cutoff_curve": "exponential",
+            },
+        })
+        params.append({
+            "id": _unique_id(existing_param_ids, "blast_cutoff"),
+            "label": "Blast Cutoff",
+            "kind": "slider",
+            "min": 500.0,
+            "max": 12000.0,
+            "step": 100.0,
+            "default": 6000.0,
+            "path": f"layers_by_id.{layer_id}.noise.cutoff_start",
+        })
+    elif any(keyword in prompt_lower for keyword in ("pickup", "collect", "sparkle", "diamond")):
+        layer_id = _unique_id(existing_layer_ids, "sparkle_ping")
+        layers.append({
+            "id": layer_id,
+            "type": "impulse",
+            "amp": 0.5,
+            "pan": 0.0,
+            "phase": 0.0,
+            "env": {"attack": 0.001, "decay": 0.2, "shape": "exp"},
+            "impulse": {"kind": "metal_ping", "width": 0.004, "tone_freq": 1900.0},
+        })
+        params.append({
+            "id": _unique_id(existing_param_ids, "sparkle_freq"),
+            "label": "Sparkle Frequency",
+            "kind": "slider",
+            "min": 1000.0,
+            "max": 3200.0,
+            "step": 50.0,
+            "default": 1900.0,
+            "path": f"layers_by_id.{layer_id}.impulse.tone_freq",
+        })
+    elif any(keyword in prompt_lower for keyword in ("shield", "deflect", "plink")):
+        layer_id = _unique_id(existing_layer_ids, "deflect_ping")
+        layers.append({
+            "id": layer_id,
+            "type": "impulse",
+            "amp": 0.55,
+            "pan": 0.0,
+            "phase": 0.0,
+            "env": {"attack": 0.001, "decay": 0.25, "shape": "exp"},
+            "impulse": {"kind": "metal_ping", "width": 0.005, "tone_freq": 1600.0},
+        })
+        params.append({
+            "id": _unique_id(existing_param_ids, "deflect_freq"),
+            "label": "Deflect Frequency",
+            "kind": "slider",
+            "min": 800.0,
+            "max": 2600.0,
+            "step": 50.0,
+            "default": 1600.0,
+            "path": f"layers_by_id.{layer_id}.impulse.tone_freq",
+        })
+    else:
+        layer_id = _unique_id(existing_layer_ids, "air_bed")
+        layers.append({
+            "id": layer_id,
+            "type": "noise",
+            "amp": 0.25,
+            "pan": 0.0,
+            "phase": 0.0,
+            "env": {"attack": 0.01, "decay": 0.3, "shape": "exp"},
+            "noise": {
+                "color": "white",
+                "cutoff_start": 9000.0,
+                "cutoff_end": 4000.0,
+                "cutoff_curve": "exponential",
+            },
+        })
+        params.append({
+            "id": _unique_id(existing_param_ids, "air_cutoff"),
+            "label": "Air Cutoff",
+            "kind": "slider",
+            "min": 2000.0,
+            "max": 14000.0,
+            "step": 250.0,
+            "default": 9000.0,
+            "path": f"layers_by_id.{layer_id}.noise.cutoff_start",
+        })
+
+    spec_dict["layers"] = layers
+    spec_dict["params"] = params
+    return SoundSpec.model_validate(spec_dict)
 
 
 def _create_laser_spec() -> SoundSpec:
